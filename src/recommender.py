@@ -1,4 +1,5 @@
 import csv
+import re
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, asdict
 
@@ -23,6 +24,35 @@ def _mood_group(mood: str) -> Optional[str]:
         if mood in moods:
             return group
     return None
+
+def _words(label: str) -> List[str]:
+    """Splits a label into lowercase words, ignoring case, spaces and punctuation."""
+    return re.findall(r"[a-z0-9&]+", label.lower())
+
+def _labels_match(a: List[str], b: List[str]) -> str:
+    """Compares two labels' words: "exact" ("lo-fi" = "lofi"), "partial" ("pop" in "indie pop"), or ""."""
+    if "".join(a) == "".join(b):
+        return "exact"
+    # Partial only when every word of one label appears in the other, so "o" ≠ "lofi"
+    if set(a) < set(b) or set(b) < set(a):
+        return "partial"
+    return ""
+
+def _validate_prefs(user_prefs: Dict) -> float:
+    """Checks the profile and returns its target energy as a float, or raises ValueError."""
+    missing = [key for key in ("genre", "mood", "energy") if key not in user_prefs]
+    if missing:
+        raise ValueError(f"profile is missing required keys: {', '.join(missing)}")
+    for key in ("genre", "mood"):
+        if not isinstance(user_prefs[key], str) or not _words(user_prefs[key]):
+            raise ValueError(f"{key} must be a non-empty label, got {user_prefs[key]!r}")
+    try:
+        energy = float(user_prefs["energy"])
+    except (TypeError, ValueError):
+        raise ValueError(f"energy must be a number, got {user_prefs['energy']!r}") from None
+    if not 0.0 <= energy <= 1.0:
+        raise ValueError(f"energy must be between 0 and 1, got {energy}")
+    return energy
 
 @dataclass
 class Song:
@@ -103,6 +133,7 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     Scores a single song against user preferences.
     Required by recommend_songs() and src/main.py
     """
+    target_energy = _validate_prefs(user_prefs)
     score = 0.0
     reasons = []
 
@@ -113,24 +144,24 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
         reasons.append(f"{reason} (+{points:.2f})")
 
     # Genre: exact match beats a partial one ("pop" inside "indie pop")
-    genre, fav_genre = song["genre"].lower(), user_prefs["genre"].lower()
-    if genre == fav_genre:
+    genre_match = _labels_match(_words(song["genre"]), _words(user_prefs["genre"]))
+    if genre_match == "exact":
         award(GENRE_WEIGHT, f"genre match: {song['genre']}")
-    elif fav_genre in genre or genre in fav_genre:
-        award(GENRE_WEIGHT / 2, f"related genre: {song['genre']} ~ {user_prefs['genre']}")
+    elif genre_match == "partial":
+        award(GENRE_WEIGHT / 2, f"related genre: {song['genre']} ~ {user_prefs['genre'].strip()}")
 
     # Mood: exact match, or partial credit for a mood in the same group
-    mood, fav_mood = song["mood"].lower(), user_prefs["mood"].lower()
+    mood, fav_mood = "".join(_words(song["mood"])), "".join(_words(user_prefs["mood"]))
     if mood == fav_mood:
         award(MOOD_WEIGHT, f"mood match: {song['mood']}")
     elif _mood_group(mood) is not None and _mood_group(mood) == _mood_group(fav_mood):
-        award(MOOD_WEIGHT / 2, f"similar mood: {song['mood']} ~ {user_prefs['mood']}")
+        award(MOOD_WEIGHT / 2, f"similar mood: {song['mood']} ~ {user_prefs['mood'].strip()}")
 
     # Energy: reward closeness to the target, not higher or lower values
-    energy_gap = abs(song["energy"] - user_prefs["energy"])
+    energy_gap = abs(song["energy"] - target_energy)
     award(
         ENERGY_WEIGHT * (1 - energy_gap),
-        f"energy {song['energy']:.2f} vs. your target {user_prefs['energy']:.2f}",
+        f"energy {song['energy']:.2f} vs. your target {target_energy:.2f}",
     )
 
     # Acoustic fit only applies when the user stated a preference
