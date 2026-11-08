@@ -66,12 +66,14 @@ class Recommender:
         self.songs = songs
 
     def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
+        """Returns the top k Song objects for the user, highest score first."""
         prefs = _profile_to_prefs(user)
         by_id = {song.id: song for song in self.songs}
         ranked = recommend_songs(prefs, [asdict(song) for song in self.songs], k)
         return [by_id[song["id"]] for song, _, _ in ranked]
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
+        """Returns the song's score and per-rule reasons as one readable string."""
         score, reasons = score_song(_profile_to_prefs(user), asdict(song))
         return f"Score {score:.2f}: " + "; ".join(reasons)
 
