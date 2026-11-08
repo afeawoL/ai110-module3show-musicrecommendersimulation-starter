@@ -1074,6 +1074,33 @@ Deep Intense Rock shows the single-song-genre problem: Storm Runner is the only 
 
 The two conflict profiles (sad-but-energetic, instrumental-not-acoustic) are unchanged on purpose: they aren't bugs but the genre-first weighting working as designed, and they're documented under *Potential biases*. The fixes are covered by new tests in `tests/test_recommender.py` (12 tests pass).
 
+### Experiment 5: Sensitivity test (weight shift + removing mood)
+
+**Question:** How sensitive are the rankings to the recipe? What happens if energy matters much more, genre matters less, and mood is ignored entirely?
+
+**Setup:** I temporarily changed `src/recommender.py` in two ways, ran the four standard profiles, compared their top 5 with the final recipe, and then reverted the changes:
+
+- **Weight shift:** genre weight halved (2.0 → 1.0) and energy weight doubled (2.5 → 5.0).
+- **Feature removal:** the mood check in `score_song` commented out, so mood earned no points.
+
+| Profile | Final recipe: top 5 | Experiment: top 5 | Overlap |
+| --- | --- | --- | --- |
+| high-energy-pop | Sunrise City, Gym Hero, Rooftop Lights, Neon Euphoria, Storm Runner | **Gym Hero**, Sunrise City, **Storm Runner (rock)**, Neon Euphoria, **Iron Furnace (metal)** | 4 / 5 |
+| chill-lofi | Library Rain, Midnight Coding, Focus Flow, Spacewalk Thoughts, Coffee Shop Stories | Library Rain, Focus Flow, Midnight Coding, Coffee Shop Stories, **Last Train Out (folk/sad)** | 4 / 5 |
+| deep-intense-rock | Storm Runner, Gym Hero, Iron Furnace, Crown Heights, Banjo Breakdown | Storm Runner, Gym Hero, **Neon Euphoria (edm/euphoric)**, Iron Furnace, **Sunrise City (pop/happy)** | 3 / 5 |
+| late-night-study | Focus Flow, Library Rain, Midnight Coding, Coffee Shop Stories, Spacewalk Thoughts | Focus Flow, Midnight Coding, Library Rain, Coffee Shop Stories, Spacewalk Thoughts | 5 / 5 |
+
+Scores also bunched together. The gap between #1 and #5 roughly halved for the three listeners with only genre, mood, and energy preferences: high-energy-pop 2.78 → 1.18, chill-lofi 2.53 → 1.27, deep-intense-rock 2.97 → 1.49.
+
+**What happened:**
+
+- **Mood carries the "feel" of a song.** Without it, the system couldn't tell happy from intense or chill from sad at the same energy. The high-energy pop fan's #1 flipped from the *happy* Sunrise City to the *intense* Gym Hero (0.03 closer in energy), and rock and metal entered their top 5. The chill-lofi listener got a sad folk song with vocals.
+- **Doubled energy outweighed genre.** At energy 5.0 vs. genre 1.0, a song only 0.2 closer in energy beats a genre match, so the recommender behaved like an energy matcher. Deep-intense-rock turned into a generic "loud songs" list, mixing euphoric EDM and happy pop.
+- **Profiles with more preferences held up better.** The late-night-study listener kept the same five songs (only #2 and #3 swapped), because the acoustic and instrumental rules still separated calm instrumental tracks from everything else.
+- **The rankings became less decisive.** With mood gone and genre weakened, more songs scored about the same, so small energy differences decided the order.
+
+**Decision:** Reverted to the final recipe (genre 2.0, mood 1.0, energy 2.5). The experiment shows that mood isn't a minor tie-breaker: it is what keeps recommendations matched to the listener's vibe, and the system is quite sensitive to the balance between genre and energy. It also confirms the 2.5 energy weight from Experiment 3: enough to block obviously wrong-energy songs, but not so much that energy overrides everything else.
+
 ---
 
 ## Limitations and Risks
